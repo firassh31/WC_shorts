@@ -53,7 +53,7 @@ class YouTubePublisher(Publisher):
                     "categoryId": self._s.youtube_category_id,
                 },
                 "status": {
-                    "privacyStatus": self._s.youtube_privacy,
+                    "privacyStatus": self._s.youtube_privacy_status,
                     "selfDeclaredMadeForKids": False,
                 },
             }

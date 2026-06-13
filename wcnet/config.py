@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     def clip_total_seconds(self) -> int:
         return self.capture_pre_seconds + self.capture_post_seconds
 
+    @property
+    def youtube_privacy_status(self) -> str:
+        """Alias of ``youtube_privacy`` used by the YouTube publisher."""
+        return self.youtube_privacy
+
     def ensure_dirs(self) -> None:
         """Create every runtime directory the ecosystem expects."""
         for path in (self.data_dir, self.buffer_dir, self.clips_dir):

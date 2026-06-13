@@ -25,7 +25,7 @@ from .config import Settings, get_settings
 from .discovery.football_api import FootballAPI
 from .discovery.youtube_hunter import YouTubeHunter
 from .logging_setup import configure_logging
-from .models import Fixture, MatchEvent
+from .models import PUBLISHABLE_EVENTS, Fixture, MatchEvent
 from .monitor.event_detector import MatchMonitor
 from .publish.syndicator import Syndicator
 from .state import StateStore
@@ -73,6 +73,10 @@ class Orchestrator:
     @safe(label="orchestrator.process_event")
     def _process_event(self, recorder: StreamRecorder, fixture: Fixture,
                         event: MatchEvent) -> None:
+        # Only big moments become their own Short — goals, penalties, red cards,
+        # VAR, and the contextual highlights. Yellow cards / subs are skipped.
+        if event.event_type not in PUBLISHABLE_EVENTS:
+            return
         clip = self._clip_factory.produce(recorder, fixture, event)
         if clip is None:
             return
