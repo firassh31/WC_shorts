@@ -60,17 +60,6 @@ class Settings(BaseSettings):
         default="public", alias="YOUTUBE_PRIVACY"
     )
 
-    # ── TikTok ───────────────────────────────────────────────────────────
-    tiktok_client_key: str = Field(default="", alias="TIKTOK_CLIENT_KEY")
-    tiktok_client_secret: str = Field(default="", alias="TIKTOK_CLIENT_SECRET")
-    tiktok_refresh_token: str = Field(default="", alias="TIKTOK_REFRESH_TOKEN")
-    tiktok_token_cache: Path = Field(
-        default=Path("./data/tiktok_token.json"), alias="TIKTOK_TOKEN_CACHE"
-    )
-    tiktok_privacy_level: str = Field(
-        default="PUBLIC_TO_EVERYONE", alias="TIKTOK_PRIVACY_LEVEL"
-    )
-
     # ── Instagram / Meta Graph ───────────────────────────────────────────
     ig_user_id: str = Field(default="", alias="IG_USER_ID")
     ig_access_token: str = Field(default="", alias="IG_ACCESS_TOKEN")
@@ -96,7 +85,7 @@ class Settings(BaseSettings):
 
     # ── Validators ───────────────────────────────────────────────────────
     @field_validator("data_dir", "youtube_client_secrets", "youtube_token_cache",
-                     "tiktok_token_cache", mode="after")
+                     mode="after")
     @classmethod
     def _expand(cls, value: Path) -> Path:
         return Path(os.path.expandvars(str(value))).expanduser()

@@ -38,11 +38,7 @@ def _doctor() -> int:
         "YouTube OAuth client (client_secrets.json)":
             settings.youtube_client_secrets.exists(),
         "YouTube token cached (autonomous)": settings.youtube_token_cache.exists(),
-        "TikTok creds": bool(settings.tiktok_client_key
-                             and settings.tiktok_client_secret
-                             and settings.tiktok_refresh_token
-                             and settings.tiktok_refresh_token != "replace_me"),
-        "Instagram creds": bool(settings.ig_user_id and settings.ig_access_token
+        "Instagram creds (optional)": bool(settings.ig_user_id and settings.ig_access_token
                                 and settings.ig_access_token != "replace_me"),
         "R2 storage": bool(settings.r2_endpoint and settings.r2_public_base_url),
     }

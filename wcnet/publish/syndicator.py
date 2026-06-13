@@ -1,8 +1,8 @@
 """Stage 5 (d) — concurrent syndication across all three networks.
 
-Fans the finished clip out to YouTube, TikTok and Instagram in parallel via a
-thread pool. Each platform is independently deduped against the state store and
-isolated so one failure never blocks the others.
+Fans the finished clip out to YouTube (and optionally Instagram) in parallel
+via a thread pool. Each platform is independently deduped against the state
+store and isolated so one failure never blocks the others.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from ..youtube_auth import YouTubeAuth
 from .base import PublishResult, Publisher
 from .instagram import InstagramPublisher
 from .r2 import R2Uploader
-from .tiktok import TikTokPublisher
 from .youtube import YouTubePublisher
 
 log = logging.getLogger("wcnet.publish.syndicator")
@@ -33,7 +32,6 @@ class Syndicator:
         r2 = R2Uploader(settings)
         all_publishers: list[Publisher] = [
             YouTubePublisher(settings, auth=youtube_auth),
-            TikTokPublisher(settings),
             InstagramPublisher(settings, uploader=r2),
         ]
         self._publishers = [p for p in all_publishers if p.is_configured()]

@@ -8,8 +8,8 @@ A self-driving Python ecosystem that, with **zero human input after setup**:
    moments like "screamer" / "unbelievable save"),
 4. clips a precise 9:16 vertical short around each event using ultra-fast
    FFmpeg stream-copying, and
-5. syndicates the finished clip to **YouTube Shorts, TikTok and Instagram
-   Reels** concurrently.
+5. syndicates the finished clip to **YouTube Shorts** (with optional Instagram
+   Reels) concurrently.
 
 > ⚠️ **Rights notice.** Re-publishing live broadcast footage is governed by
 > FIFA/broadcaster copyright. Run this only against feeds you are licensed to
@@ -25,8 +25,6 @@ WC/
 ├── main.py                      # entrypoint:  `python main.py [doctor]`
 ├── requirements.txt
 ├── .env.example                 # every credential + tuning knob
-├── scripts/
-│   └── tiktok_oauth_bootstrap.py# one-time TikTok refresh-token grabber
 └── wcnet/
     ├── config.py                # Stage 1a — pydantic-settings config model
     ├── state.py                 # Stage 1b — SQLite thread-safe dedup guard
@@ -44,10 +42,9 @@ WC/
     ├── publish/
     │   ├── base.py              # Publisher interface + PublishResult
     │   ├── youtube.py           # Stage 5a — Shorts resumable chunked upload
-    │   ├── tiktok.py            # Stage 5b — Content Posting API (FILE_UPLOAD)
     │   ├── r2.py                #            Cloudflare R2 public-URL host
-    │   ├── instagram.py         # Stage 5c — Graph API Reels container flow
-    │   └── syndicator.py        # Stage 5d — concurrent fan-out
+    │   ├── instagram.py         # Stage 5b — Graph API Reels (optional)
+    │   └── syndicator.py        # Stage 5c — concurrent fan-out
     └── orchestrator.py          # the conductor wiring all stages together
 ```
 
@@ -63,8 +60,7 @@ WC/
                                        │
                                        ▼
                           Syndicator ─┬─► YouTube Shorts
-                                      ├─► TikTok
-                                      └─► Instagram Reels   (all concurrent)
+                                      └─► Instagram Reels (optional, concurrent)
 ```
 
 ### Key design decisions
@@ -76,7 +72,7 @@ WC/
 | **Low CPU capture** | A single `ffmpeg -c copy -f segment` process writes timestamped 2-second `.ts` segments into a pruned DVR ring. Only the final ~30 s clip is re-encoded. |
 | **Stream resilience** | Recorder uses FFmpeg `-reconnect`; on full drop it auto-respawns after a backoff. |
 | **9:16 render** | `blur_pad` (fitted feed over a blurred fill) by default, or `center_crop`. Output is web-ready H.264/AAC + `faststart`, `<60 s` enforced in config. |
-| **Autonomy** | Tokens cached to disk (YouTube OAuth json, TikTok refresh token). No human prompts after first auth. |
+| **Autonomy** | YouTube OAuth token cached to disk. No human prompts after first auth. |
 | **Concurrency** | Per-match recorder + ticker threads; a global 4-worker pool caps simultaneous render/publish jobs; publishers fan out via their own pool. |
 
 ---
@@ -104,15 +100,13 @@ pip install -r requirements.txt
 cp .env.example .env          # then edit with real values
 mkdir secrets                 # drop your Google client_secrets.json here
 ```
-- **YouTube**: put the downloaded `client_secrets.json` at the path in
-  `YOUTUBE_CLIENT_SECRETS`. First run opens a browser once; the token is cached.
-- **TikTok**: run the bootstrap to mint a refresh token:
-  ```bash
-  python scripts/tiktok_oauth_bootstrap.py
-  ```
-  Paste the printed `refresh_token` into `.env`.
-- **Instagram**: a long-lived Page/IG token + the IG Business user id.
-- **R2**: bucket, S3 keys, endpoint, and a **public** base URL bound to the bucket.
+- **YouTube** (required): put the downloaded `client_secrets.json` at the path in
+  `YOUTUBE_CLIENT_SECRETS`. OAuth covers both Search and Shorts upload — no API
+  key needed. First run opens a browser once; the token is then cached.
+- **Football data** (required): a RapidAPI / sports-API key in `FOOTBALL_API_KEY`.
+- **Instagram** (optional): a long-lived Page/IG token + the IG Business user id.
+- **R2** (only if Instagram is used): bucket, S3 keys, endpoint, and a **public**
+  base URL bound to the bucket.
 
 ### 4. Preflight & run
 ```bash
