@@ -6,6 +6,9 @@ python-dotenv>=1.0
 # ── HTTP / networking ──────────────────────────────────────────────────
 requests>=2.31
 tenacity>=8.2
+# Verify TLS against the OS trust store (handles VPN/proxy/AV root CAs that
+# certifi's static bundle doesn't include).
+truststore>=0.9
 
 # ── Stream resolution ───────────────────────────────────────────────────
 yt-dlp>=2024.4.9
