@@ -35,6 +35,7 @@ import yt_dlp  # noqa: E402
 
 from wcnet.captioning import build_caption, build_hashtags  # noqa: E402
 from wcnet.capture.clipper import ClipFactory  # noqa: E402
+from wcnet.capture.overlay import scorebug_for_event  # noqa: E402
 from wcnet.config import get_settings  # noqa: E402
 from wcnet.models import EventType, Fixture, MatchEvent, RenderedClip  # noqa: E402
 from wcnet.publish.youtube import YouTubePublisher  # noqa: E402
@@ -129,12 +130,6 @@ def main() -> int:
     raw = download_video(video["id"], ffmpeg_dir, raw_base)
     start = clip_start(video.get("duration"))
 
-    # 3 — render 9:16 using the project's real renderer (trims [start, +24s])
-    banner(f"STEP 3/4 — RENDER 9:16 from [{start:.0f}s … {start + CLIP_LEN:.0f}s]")
-    factory = ClipFactory(settings)
-    factory._render_vertical(raw, final_mp4, offset=start, duration=CLIP_LEN)
-    print(f"  rendered: {final_mp4}  ({final_mp4.stat().st_size // 1024} KB)")
-
     # build metadata for the 2022 final
     fixture = Fixture(
         fixture_id=999999, home_team="Argentina", away_team="France",
@@ -148,6 +143,17 @@ def main() -> int:
         team="Argentina", player="L. Messi",
         description="Highlight from the 2022 World Cup Final (pipeline test clip)",
     )
+
+    # 3 — render 9:16 with the event-driven scorebug + basic colour filter
+    banner(f"STEP 3/4 — RENDER 9:16 + scorebug from [{start:.0f}s … "
+           f"{start + CLIP_LEN:.0f}s]")
+    factory = ClipFactory(settings)
+    bug = final_mp4.with_name("scorebug.png")
+    scorebug_for_event(bug, fixture, event, home_score=3, away_score=3)
+    factory._render_vertical(raw, final_mp4, offset=start, duration=CLIP_LEN,
+                             scorebug_png=bug, apply_filter=True)
+    print(f"  rendered: {final_mp4}  ({final_mp4.stat().st_size // 1024} KB)")
+
     clip = RenderedClip(
         path=str(final_mp4), fixture=fixture, event=event,
         duration_seconds=CLIP_LEN,

@@ -32,6 +32,7 @@ from ..config import Settings
 from ..models import Fixture, MatchEvent, RenderedClip
 from ..captioning import build_caption, build_hashtags
 from ..utils.retry import resilient
+from .overlay import scorebug_for_event
 
 log = logging.getLogger("wcnet.capture")
 
@@ -181,6 +182,7 @@ class ClipFactory:
         stamp = event.detected_at.strftime("%Y%m%d_%H%M%S")
         concat_ts = work_dir / f"concat_{stamp}.ts"
         out_mp4 = work_dir / f"{event.event_type.value}_{stamp}.mp4"
+        scorebug = work_dir / f"bug_{stamp}.png"
 
         try:
             # 3. Concat (copy, no re-encode) the raw segments.
@@ -189,10 +191,13 @@ class ClipFactory:
             first_start = recorder._seg_start(segments[0]) or window_start
             offset = max(0.0, window_start - first_start)
             duration = min(float(pre + post), 59.0)  # hard < 60s guarantee
-            # 5. Trim + render to mobile-native 9:16.
-            self._render_vertical(concat_ts, out_mp4, offset, duration)
+            # 5. Build the event-driven scorebug, then trim + render to 9:16.
+            scorebug_for_event(scorebug, fixture, event)
+            self._render_vertical(concat_ts, out_mp4, offset, duration,
+                                  scorebug_png=scorebug)
         finally:
             concat_ts.unlink(missing_ok=True)
+            scorebug.unlink(missing_ok=True)
 
         caption = build_caption(fixture, event)
         hashtags = build_hashtags(fixture, event)
@@ -226,13 +231,12 @@ class ClipFactory:
         self._run(cmd)
         list_file.unlink(missing_ok=True)
 
-    def _vertical_filter(self) -> str:
-        """Build the 9:16 (1080x1920) filtergraph for the chosen render mode."""
+    def _vertical_core(self) -> str:
+        """The base 9:16 (1080x1920) chain, producing a labelled pad [vv]."""
         if self._s.render_mode == "center_crop":
-            # Smart center-crop: scale to cover then crop to 9:16.
             return (
-                "scale=1080:1920:force_original_aspect_ratio=increase,"
-                "crop=1080:1920,setsar=1"
+                "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+                "crop=1080:1920,setsar=1[vv]"
             )
         # Default: minimalist blurred top/bottom padding around a fitted feed.
         return (
@@ -240,19 +244,39 @@ class ClipFactory:
             "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
             "crop=1080:1920,boxblur=22:6,eq=brightness=-0.06[bgb];"
             "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fgs];"
-            "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1"
+            "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vv]"
         )
 
     @resilient(attempts=3, exceptions=(subprocess.SubprocessError, OSError))
     def _render_vertical(
-        self, src: Path, out_path: Path, offset: float, duration: float
+        self, src: Path, out_path: Path, offset: float, duration: float,
+        scorebug_png: Path | None = None, apply_filter: bool = True,
     ) -> None:
-        flt = self._vertical_filter()
-        filter_flag = "-filter_complex" if flt.startswith("[") else "-vf"
+        """Trim + render to 9:16, optionally grading + compositing a scorebug.
+
+        ``apply_filter`` adds a basic colour grade; ``scorebug_png`` (if given)
+        is overlaid as a banner at the top of the frame.
+        """
+        graph = self._vertical_core()
+        last = "vv"
+        if apply_filter:
+            graph += f";[{last}]eq=contrast=1.06:saturation=1.12,vignette=PI/5[gr]"
+            last = "gr"
+
         cmd = [
             self._s.ffmpeg_binary, "-hide_banner", "-loglevel", "error", "-y",
-            "-ss", f"{offset:.3f}", "-i", str(src), "-t", f"{duration:.3f}",
-            filter_flag, flt,
+            "-ss", f"{offset:.3f}", "-i", str(src),
+        ]
+        if scorebug_png is not None:
+            cmd += ["-i", str(scorebug_png)]
+            graph += f";[{last}][1:v]overlay=(W-w)/2:70[outv]"
+        else:
+            graph += f";[{last}]copy[outv]"
+
+        cmd += [
+            "-t", f"{duration:.3f}",
+            "-filter_complex", graph,
+            "-map", "[outv]", "-map", "0:a?",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
             "-profile:v", "high", "-pix_fmt", "yuv420p",
             "-r", "30", "-g", "60",
