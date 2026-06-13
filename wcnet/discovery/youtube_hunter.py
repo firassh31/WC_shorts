@@ -152,6 +152,56 @@ class YouTubeHunter:
             )
         return best
 
+    # ── Creative-Commons clip search (legally reusable REAL footage) ─────────
+    @resilient(attempts=4)
+    def _search_videos(self, query: str, creative_commons: bool,
+                       max_results: int = 20) -> list[dict[str, Any]]:
+        params: dict[str, Any] = dict(
+            q=query, part="snippet", type="video", maxResults=max_results,
+            order="viewCount", safeSearch="none",
+        )
+        if creative_commons:
+            # Only clips the uploader licensed for reuse under CC BY.
+            params["videoLicense"] = "creativeCommon"
+        try:
+            return self._yt.search().list(**params).execute().get("items", [])
+        except HttpError as exc:
+            raise requests.exceptions.ConnectionError(str(exc)) from exc
+
+    def find_clip(self, query: str, creative_commons: bool = True) -> LiveStream | None:
+        """Find the best reusable clip for a query.
+
+        With ``creative_commons=True`` (default) only CC-BY licensed videos are
+        returned — real footage the uploader has explicitly permitted you to
+        reuse (attribution required). Volume is lower than the open web, but it
+        is legitimate and Content-ID-safe when the source license is genuine.
+        """
+        items = self._search_videos(query, creative_commons)
+        if not items:
+            log.info("No %sclips found for %r",
+                     "CC-licensed " if creative_commons else "", query)
+            return None
+        ids = [it["id"]["videoId"] for it in items]
+        stats = self._statistics(ids)
+        best: LiveStream | None = None
+        best_v = -1
+        for it in items:
+            vid = it["id"]["videoId"]
+            sn = it["snippet"]
+            vc = int(stats.get(vid, {}).get("statistics", {}).get("viewCount", 0))
+            if vc > best_v:
+                best_v = vc
+                best = LiveStream(
+                    video_id=vid, channel_title=sn.get("channelTitle", ""),
+                    title=sn.get("title", ""), view_count=vc,
+                    is_official_ish=False,
+                    watch_url=f"https://www.youtube.com/watch?v={vid}",
+                )
+        if best:
+            log.info("Selected CC clip: %r (%s) views=%d",
+                     best.title, best.channel_title, best_v)
+        return best
+
     @resilient(attempts=4)
     def resolve_manifest_url(self, watch_url: str) -> str:
         """Resolve a YouTube watch URL to a direct HLS/manifest URL for FFmpeg.

@@ -13,6 +13,10 @@ truststore>=0.9
 # ── Stream resolution ───────────────────────────────────────────────────
 yt-dlp>=2024.4.9
 
+# ── Generated (copyright-safe) clip rendering ───────────────────────────
+Pillow>=10.0
+numpy>=1.26
+
 # ── YouTube Data API v3 (OAuth + upload) ────────────────────────────────
 google-api-python-client>=2.120
 google-auth>=2.29
