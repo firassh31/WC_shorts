@@ -8,14 +8,7 @@ out of scope — the pipeline stops at the finished .mp4 in data/clips/.
 
 __version__ = "1.0.0"
 
-# Use the operating-system trust store for TLS verification. This makes Python
-# trust the same CAs the OS does (incl. corporate proxy / VPN / AV roots that
-# intercept TLS), which certifi's static bundle does not know about. Injecting
-# here — at first import of the package — guarantees it runs before any SSL
-# context is created by requests / google-api-client / boto3 / yt-dlp.
-try:  # truststore is optional; on hosts with clean CA chains it isn't needed.
-    import truststore as _truststore
-
-    _truststore.inject_into_ssl()
-except Exception:  # noqa: BLE001 - never let TLS setup break startup
-    pass
+# NOTE: TLS verification is handled per-session in wcnet.utils.http
+# (certifi by default, OS trust store as fallback). We intentionally do NOT
+# call truststore.inject_into_ssl() globally — forcing the OS/SChannel path
+# fixes some hosts (VPN/proxy MITM) but breaks others (e.g. worldcup26.ir).

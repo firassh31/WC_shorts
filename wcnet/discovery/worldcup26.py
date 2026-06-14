@@ -20,9 +20,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import requests
-
 from ..models import EventType, Fixture, MatchEvent
+from ..utils.http import make_session
 from ..utils.retry import resilient
 
 log = logging.getLogger("wcnet.discovery.worldcup26")
@@ -44,7 +43,7 @@ class WorldCup26API:
     """Thin, resilient client over the free worldcup26.ir endpoints."""
 
     def __init__(self) -> None:
-        self._session = requests.Session()
+        self._session = make_session()
         self._session.headers.update({"Accept": "application/json"})
 
     @resilient(attempts=4)

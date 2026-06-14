@@ -15,6 +15,7 @@ import requests
 
 from ..config import Settings
 from ..models import Fixture
+from ..utils.http import make_session
 from ..utils.retry import resilient
 
 log = logging.getLogger("wcnet.discovery.football")
@@ -30,7 +31,7 @@ class FootballAPI:
 
     def __init__(self, settings: Settings) -> None:
         self._s = settings
-        self._session = requests.Session()
+        self._session = make_session()
         self._base = f"https://{settings.football_api_host}"
         if settings.football_api_via_rapidapi:
             self._session.headers.update(
