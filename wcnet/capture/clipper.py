@@ -162,7 +162,8 @@ class ClipFactory:
 
     # ── public entry point ────────────────────────────────────────────────
     def produce(
-        self, recorder: StreamRecorder, fixture: Fixture, event: MatchEvent
+        self, recorder: StreamRecorder, fixture: Fixture, event: MatchEvent,
+        home_score: int | None = None, away_score: int | None = None,
     ) -> RenderedClip | None:
         trigger = event.detected_at.timestamp()
         pre = self._s.capture_pre_seconds
@@ -195,14 +196,15 @@ class ClipFactory:
             offset = max(0.0, window_start - first_start)
             duration = min(float(pre + post), 59.0)  # hard < 60s guarantee
             # 5. Build the event-driven scorebug, then trim + render to 9:16.
-            scorebug_for_event(scorebug, fixture, event)
+            scorebug_for_event(scorebug, fixture, event,
+                               home_score=home_score, away_score=away_score)
             self._render_vertical(concat_ts, out_mp4, offset, duration,
                                   scorebug_png=scorebug)
         finally:
             concat_ts.unlink(missing_ok=True)
             scorebug.unlink(missing_ok=True)
 
-        caption = build_caption(fixture, event)
+        caption = build_caption(fixture, event, home_score, away_score)
         hashtags = build_hashtags(fixture, event)
         log.info("Rendered clip → %s (%.1fs)", out_mp4, duration)
         return RenderedClip(
