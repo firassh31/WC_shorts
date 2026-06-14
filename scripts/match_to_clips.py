@@ -28,6 +28,7 @@ except Exception:  # noqa: BLE001
 
 sys.path.insert(0, ".")
 
+from wcnet.captioning import build_caption, build_hashtags  # noqa: E402
 from wcnet.capture.clipper import ClipFactory  # noqa: E402
 from wcnet.capture.overlay import scorebug_for_event  # noqa: E402
 from wcnet.config import get_settings  # noqa: E402
@@ -85,6 +86,13 @@ def main() -> int:
         mi = sys.argv.index("--max")
         max_clips = int(sys.argv[mi + 1])
         skip_idx.add(mi + 1)
+    # Optional exact per-event start times (seconds) so footage matches the
+    # event precisely on a VOD, e.g. --offsets 6,30,58,82,108
+    offsets_override: list[float] = []
+    if "--offsets" in sys.argv:
+        oi = sys.argv.index("--offsets")
+        offsets_override = [float(x) for x in sys.argv[oi + 1].split(",")]
+        skip_idx.add(oi + 1)
     fixture_id = next((int(a) for i, a in enumerate(sys.argv)
                        if i >= 2 and i not in skip_idx and a.isdigit()), None)
 
@@ -142,8 +150,9 @@ def main() -> int:
     out_dir = settings.clips_dir / "match_events"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    banner(f"STEP 2 — RENDER {len(collected)} PER-EVENT CLIPS (9:16 + scorebug)")
-    produced: list[tuple[Path, MatchEvent, int, int]] = []
+    align = "EXACT (--offsets)" if offsets_override else "chronological spread (VOD)"
+    banner(f"STEP 2 — RENDER {len(collected)} PER-EVENT CLIPS  [align: {align}]")
+    produced: list[RenderedClip] = []
     for i, (it, cls, h, a) in enumerate(collected):
         t = (it.get("time", {}) or {})
         minute = t.get("elapsed")
@@ -154,7 +163,11 @@ def main() -> int:
             event_type=cls, layer="A", minute=minute, team=team,
             player=player, description=it.get("detail") or cls.value,
         )
-        offset = span_lo + (span_hi - span_lo) * (i / max(1, len(collected) - 1))
+        if i < len(offsets_override):
+            offset = offsets_override[i]
+        else:
+            offset = span_lo + (span_hi - span_lo) * (i / max(1, len(collected) - 1))
+
         bug = out_dir / f"bug_{i}.png"
         out_mp4 = out_dir / f"{i:02d}_{cls.value}_{minute}.mp4"
         scorebug_for_event(bug, fixture, event, home_score=h, away_score=a)
@@ -162,30 +175,35 @@ def main() -> int:
                                  duration=CLIP_LEN, scorebug_png=bug,
                                  apply_filter=True)
         bug.unlink(missing_ok=True)
-        produced.append((out_mp4, event, h, a))
-        print(f"  [{i+1}/{len(collected)}] {cls.value:<9} {minute}'  "
-              f"{(player or team or ''):<20} {h}-{a}  -> {out_mp4.name}")
+
+        # Real, score-aware caption + event-specific question + hashtags.
+        clip = RenderedClip(
+            path=str(out_mp4), fixture=fixture, event=event,
+            duration_seconds=CLIP_LEN,
+            caption=build_caption(fixture, event, home_score=h, away_score=a),
+            hashtags=build_hashtags(fixture, event),
+        )
+        produced.append(clip)
+        print(f"\n  [{i+1}/{len(collected)}] {cls.value.upper()} {minute}' "
+              f"{(player or team or '')} | score {h}-{a} | @{offset:.0f}s "
+              f"-> {out_mp4.name}")
+        for line in clip.caption.splitlines():
+            if line:
+                print(f"      {line}")
+        print(f"      tags: {' '.join(clip.hashtags)}")
 
     banner(f"DONE — {len(produced)} per-event clips in {out_dir}")
     if not do_upload:
         print("  (render-only; pass --upload to publish each to YouTube)")
         return 0
 
-    # Optional upload of each clip.
-    from wcnet.captioning import build_caption, build_hashtags
     from wcnet.publish.youtube import YouTubePublisher
     from wcnet.youtube_auth import YouTubeAuth
     settings.youtube_privacy = "private"
     pub = YouTubePublisher(settings, auth=YouTubeAuth(settings))
-    for path, event, h, a in produced:
-        clip = RenderedClip(
-            path=str(path), fixture=fixture, event=event,
-            duration_seconds=CLIP_LEN,
-            caption=build_caption(fixture, event),
-            hashtags=build_hashtags(fixture, event),
-        )
+    for clip in produced:
         r = pub.publish(clip)
-        print(f"  upload {event.event_type.value} {event.minute}': "
+        print(f"  upload {clip.event.event_type.value} {clip.event.minute}': "
               f"{'OK ' + (r.remote_id or '') if r.ok else 'FAIL ' + str(r.error)}")
     return 0
 
