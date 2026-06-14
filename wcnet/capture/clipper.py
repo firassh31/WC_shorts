@@ -23,6 +23,7 @@ import logging
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -42,13 +43,16 @@ _SEG_RE = re.compile(r"seg_(\d{8}_\d{6})\.ts$")
 class StreamRecorder:
     """Continuously buffers a live stream into a timestamped segment ring."""
 
-    def __init__(self, fixture: Fixture, manifest_url: str, settings: Settings) -> None:
+    def __init__(self, fixture: Fixture, source_url: str, settings: Settings) -> None:
         self._fixture = fixture
-        self._url = manifest_url
+        # YouTube watch URL (or any URL yt-dlp can read). yt-dlp — not raw
+        # ffmpeg — pulls it, so token rotation / reconnection are handled.
+        self._url = source_url
         self._s = settings
         self._dir = settings.buffer_dir / str(fixture.fixture_id)
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._proc: subprocess.Popen[bytes] | None = None
+        self._ydl: subprocess.Popen[bytes] | None = None
+        self._ff: subprocess.Popen[bytes] | None = None
         self._stop = threading.Event()
         self._janitor: threading.Thread | None = None
         self._recorder: threading.Thread | None = None
@@ -73,43 +77,55 @@ class StreamRecorder:
 
     def stop(self) -> None:
         self._stop.set()
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
+        self._terminate_procs()
         # Best-effort cleanup of the buffer directory.
         shutil.rmtree(self._dir, ignore_errors=True)
         log.info("Recorder stopped for %s", self._fixture.title)
 
-    # ── recorder loop (auto-reconnect on stream drop) ──────────────────────
+    def _terminate_procs(self) -> None:
+        for proc in (self._ff, self._ydl):
+            if proc and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        self._ff = self._ydl = None
+
+    # ── recorder loop (yt-dlp → ffmpeg, auto-reconnect on drop) ────────────
     def _record_loop(self) -> None:
         # strftime second-resolution naming (segment_time >= 1s keeps these
-        # unique). NOTE: a numeric %03d sequence is NOT a valid strftime token
-        # and yields empty filenames on Windows ffmpeg — keep this strftime-only.
+        # unique). NOTE: %03d is NOT a valid strftime token and yields empty
+        # filenames on Windows ffmpeg — keep this strftime-only.
         pattern = str(self._dir / "seg_%Y%m%d_%H%M%S.ts")
+        # yt-dlp pulls the live stream from the live edge and muxes a single
+        # combined stream to stdout; ffmpeg just segments the pipe (-c copy).
+        ydl_cmd = [
+            sys.executable, "-m", "yt_dlp",
+            "--quiet", "--no-warnings", "--no-part", "--no-playlist",
+            "--retries", "infinite", "--fragment-retries", "infinite",
+            "-f", "b[height<=720]/b/best",
+            "-o", "-", self._url,
+        ]
+        ff_cmd = [
+            self._s.ffmpeg_binary, "-hide_banner", "-loglevel", "error",
+            "-i", "pipe:0", "-c", "copy",
+            "-f", "segment", "-segment_time", str(self._s.segment_seconds),
+            "-strftime", "1", "-reset_timestamps", "1",
+            "-segment_format", "mpegts", pattern,
+        ]
         while not self._stop.is_set():
-            cmd = [
-                self._s.ffmpeg_binary,
-                "-hide_banner", "-loglevel", "error",
-                "-reconnect", "1", "-reconnect_streamed", "1",
-                "-reconnect_delay_max", "5",
-                "-i", self._url,
-                "-c", "copy",
-                "-f", "segment",
-                "-segment_time", str(self._s.segment_seconds),
-                "-strftime", "1",
-                "-reset_timestamps", "1",
-                "-segment_format", "mpegts",
-                pattern,
-            ]
             try:
-                log.debug("Spawning recorder ffmpeg: %s", " ".join(cmd))
-                self._proc = subprocess.Popen(cmd)
-                self._proc.wait()
+                self._ydl = subprocess.Popen(ydl_cmd, stdout=subprocess.PIPE)
+                self._ff = subprocess.Popen(ff_cmd, stdin=self._ydl.stdout)
+                # Let ffmpeg own the read end so yt-dlp sees EOF cleanly.
+                if self._ydl.stdout:
+                    self._ydl.stdout.close()
+                self._ff.wait()
             except Exception:  # noqa: BLE001
-                log.exception("Recorder ffmpeg crashed; will reconnect")
+                log.exception("Recorder pipeline crashed; will reconnect")
+            finally:
+                self._terminate_procs()
             if self._stop.is_set():
                 break
             # Brief stream drop → backoff then reconnect (resiliency mandate).

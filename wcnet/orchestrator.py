@@ -92,9 +92,8 @@ class Orchestrator:
                      fixture.title)
             return
 
-        manifest_url = self._hunter.resolve_manifest_url(stream.watch_url)
-
-        recorder = StreamRecorder(fixture, manifest_url, self._s)
+        # The recorder uses yt-dlp to pull the watch URL robustly.
+        recorder = StreamRecorder(fixture, stream.watch_url, self._s)
         recorder.start()
 
         monitor = MatchMonitor(

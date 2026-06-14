@@ -58,9 +58,8 @@ def run_wc26_live(match_id: int | None = None) -> int:
         log.error("No live stream found for %s — cannot record.", fixture.title)
         return 1
     log.info("Stream: %r (%s)", stream.title, stream.channel_title)
-    url = hunter.resolve_manifest_url(stream.watch_url)
-
-    recorder = StreamRecorder(fixture, url, settings)
+    # Pass the watch URL — the recorder uses yt-dlp to pull it robustly.
+    recorder = StreamRecorder(fixture, stream.watch_url, settings)
     recorder.start()
     factory = ClipFactory(settings)
     watcher.prime(match)  # only goals from now on
