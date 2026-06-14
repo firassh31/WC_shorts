@@ -22,6 +22,13 @@ def configure_logging(level: str = "INFO", log_file: Path | None = None) -> None
     )
     formatter = logging.Formatter(fmt, datefmt="%Y-%m-%d %H:%M:%S")
 
+    # Windows consoles default to cp1252 and crash on emoji/✔ glyphs in logs;
+    # force UTF-8 so the daemon's status logs never blow up.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        pass
+
     root = logging.getLogger()
     root.setLevel(level.upper())
 

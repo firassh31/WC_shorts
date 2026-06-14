@@ -13,17 +13,14 @@ truststore>=0.9
 # ── Stream resolution ───────────────────────────────────────────────────
 yt-dlp>=2024.4.9
 
-# ── Scorebug overlay rendering ──────────────────────────────────────────
+# ── Event-text overlay rendering ────────────────────────────────────────
 Pillow>=10.0
 
-# ── YouTube Data API v3 (OAuth + upload) ────────────────────────────────
+# ── YouTube Data API v3 (OAuth) — used ONLY to search for the live stream ─
 google-api-python-client>=2.120
 google-auth>=2.29
 google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
-
-# ── Cloudflare R2 / S3-compatible object storage ────────────────────────
-boto3>=1.34
 
 # NOTE: FFmpeg (with libx264 + aac) must be installed on the host PATH.
 #   Windows:  winget install Gyan.FFmpeg     (or  choco install ffmpeg-full)

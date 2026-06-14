@@ -132,6 +132,13 @@ class FootballAPI:
         return selected
 
     @resilient(attempts=4)
+    def fetch_fixture(self, fixture_id: int) -> Fixture | None:
+        """Fetch a single fixture by id (used for forced --fixture runs)."""
+        payload = self._get("fixtures", {"id": fixture_id})
+        resp = payload.get("response", [])
+        return self._parse_fixture(resp[0]) if resp else None
+
+    @resilient(attempts=4)
     def fetch_events(self, fixture_id: int) -> list[dict[str, Any]]:
         """Raw timeline events (goals, cards, subs, VAR) for a fixture."""
         payload = self._get("fixtures/events", {"fixture": fixture_id})

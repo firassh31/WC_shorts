@@ -193,18 +193,13 @@ def main() -> int:
         print(f"      tags: {' '.join(clip.hashtags)}")
 
     banner(f"DONE — {len(produced)} per-event clips in {out_dir}")
-    if not do_upload:
-        print("  (render-only; pass --upload to publish each to YouTube)")
-        return 0
-
-    from wcnet.publish.youtube import YouTubePublisher
-    from wcnet.youtube_auth import YouTubeAuth
-    settings.youtube_privacy = "private"
-    pub = YouTubePublisher(settings, auth=YouTubeAuth(settings))
+    print("  Local files only (publishing removed). A .txt with the suggested")
+    print("  title/description sits next to each clip.")
+    # Write sidecar description files for manual use.
     for clip in produced:
-        r = pub.publish(clip)
-        print(f"  upload {clip.event.event_type.value} {clip.event.minute}': "
-              f"{'OK ' + (r.remote_id or '') if r.ok else 'FAIL ' + str(r.error)}")
+        from pathlib import Path
+        Path(clip.path).with_suffix(".txt").write_text(
+            clip.full_description, encoding="utf-8")
     return 0
 
 

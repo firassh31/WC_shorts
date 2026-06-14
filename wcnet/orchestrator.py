@@ -6,11 +6,10 @@ Discovery loop (main thread)
          ├─ start a StreamRecorder (rolling buffer)               [Stage 4]
          └─ start a MatchMonitor ticker                            [Stage 3]
                 └─ on each detected event → ClipFactory.produce    [Stage 4]
-                       └─ Syndicator.syndicate (concurrent)        [Stage 5]
+                       └─ save the finished .mp4 to data/clips/    [local only]
 
-Everything below the discovery loop runs in daemon threads; an executor caps
-how many clips render/publish at once so bursts (e.g. a flurry of chances)
-never overwhelm the host.
+Publishing has been removed: the pipeline stops at rendering local clips. An
+executor caps how many clips render at once so bursts never overwhelm the host.
 """
 
 from __future__ import annotations
@@ -27,7 +26,6 @@ from .discovery.youtube_hunter import YouTubeHunter
 from .logging_setup import configure_logging
 from .models import PUBLISHABLE_EVENTS, Fixture, MatchEvent
 from .monitor.event_detector import MatchMonitor
-from .publish.syndicator import Syndicator
 from .state import StateStore
 from .utils.retry import safe
 from .youtube_auth import YouTubeAuth
@@ -54,9 +52,7 @@ class Orchestrator:
         self._yt_auth = YouTubeAuth(self._s)
         self._hunter = YouTubeHunter(self._s, auth=self._yt_auth)
         self._clip_factory = ClipFactory(self._s)
-        self._syndicator = Syndicator(self._s, self._state,
-                                      youtube_auth=self._yt_auth)
-        # Caps concurrent render+publish jobs across all matches.
+        # Caps concurrent render jobs across all matches.
         self._jobs = ThreadPoolExecutor(max_workers=4, thread_name_prefix="clip")
         self._active: dict[int, ActiveMatch] = {}
         self._lock = threading.Lock()
@@ -73,14 +69,14 @@ class Orchestrator:
     @safe(label="orchestrator.process_event")
     def _process_event(self, recorder: StreamRecorder, fixture: Fixture,
                         event: MatchEvent) -> None:
-        # Only big moments become their own Short — goals, penalties, red cards,
+        # Only big moments become their own clip — goals, penalties, red cards,
         # VAR, and the contextual highlights. Yellow cards / subs are skipped.
         if event.event_type not in PUBLISHABLE_EVENTS:
             return
         clip = self._clip_factory.produce(recorder, fixture, event)
         if clip is None:
             return
-        self._syndicator.syndicate(clip)
+        log.info("📁 Clip ready: %s", clip.path)
 
     # ── spinning up a match ────────────────────────────────────────────────
     @safe(label="orchestrator.activate")
@@ -137,19 +133,40 @@ class Orchestrator:
                 continue
             self._activate(fixture)
 
-    def run_forever(self) -> None:
+    def run_forever(self, forced_fixture: int | None = None) -> None:
         configure_logging(self._s.log_level, self._s.data_dir / "wcnet.log")
         log.info("🚀 WCNET online — env=%s league=%s season=%s",
                  self._s.env, self._s.football_league_id, self._s.football_season)
         interval = max(self._s.football_poll_seconds, 30)
         try:
-            while not self._stop.is_set():
-                self._discovery_cycle()
-                self._stop.wait(interval)
+            if forced_fixture is not None:
+                self._run_single_fixture(forced_fixture, interval)
+            else:
+                while not self._stop.is_set():
+                    self._discovery_cycle()
+                    self._stop.wait(interval)
         except KeyboardInterrupt:
             log.info("Interrupt received — shutting down")
         finally:
             self.shutdown()
+
+    @safe(label="orchestrator.run_single")
+    def _run_single_fixture(self, fixture_id: int, interval: int) -> None:
+        """Bypass discovery: activate one fixture and run until it finishes."""
+        fixture = self._football.fetch_fixture(fixture_id)
+        if fixture is None:
+            log.error("Fixture %s not found (or not on your API plan).", fixture_id)
+            return
+        log.info("🎯 Forced fixture %s — %s [%s]",
+                 fixture_id, fixture.title, fixture.status_short)
+        self._activate(fixture)
+        while not self._stop.is_set():
+            self._reap_finished()
+            with self._lock:
+                if fixture_id not in self._active:
+                    log.info("Forced fixture finished — exiting.")
+                    break
+            self._stop.wait(interval)
 
     def shutdown(self) -> None:
         self._stop.set()

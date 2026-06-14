@@ -32,7 +32,7 @@ from ..config import Settings
 from ..models import Fixture, MatchEvent, RenderedClip
 from ..captioning import build_caption, build_hashtags
 from ..utils.retry import resilient
-from .overlay import scorebug_for_event
+from .overlay import event_overlay_for
 
 log = logging.getLogger("wcnet.capture")
 
@@ -184,9 +184,14 @@ class ClipFactory:
         work_dir = self._s.clips_dir / str(fixture.fixture_id)
         work_dir.mkdir(parents=True, exist_ok=True)
         stamp = event.detected_at.strftime("%Y%m%d_%H%M%S")
+        # Clear, descriptive filename: match + event type + minute.
+        slug = self._slug(
+            f"{fixture.home_team}_vs_{fixture.away_team}"
+            f"_{event.event_type.value}_{event.minute or 0}min_{stamp}"
+        )
         concat_ts = work_dir / f"concat_{stamp}.ts"
-        out_mp4 = work_dir / f"{event.event_type.value}_{stamp}.mp4"
-        scorebug = work_dir / f"bug_{stamp}.png"
+        out_mp4 = work_dir / f"{slug}.mp4"
+        overlay_png = work_dir / f"ov_{stamp}.png"
 
         try:
             # 3. Concat (copy, no re-encode) the raw segments.
@@ -195,26 +200,29 @@ class ClipFactory:
             first_start = recorder._seg_start(segments[0]) or window_start
             offset = max(0.0, window_start - first_start)
             duration = min(float(pre + post), 59.0)  # hard < 60s guarantee
-            # 5. Build the event-driven scorebug, then trim + render to 9:16.
-            scorebug_for_event(scorebug, fixture, event,
-                               home_score=home_score, away_score=away_score)
+            # 5. Build the simple event-text overlay, then trim + render to 9:16.
+            event_overlay_for(overlay_png, fixture, event)
             self._render_vertical(concat_ts, out_mp4, offset, duration,
-                                  scorebug_png=scorebug)
+                                  scorebug_png=overlay_png)
         finally:
             concat_ts.unlink(missing_ok=True)
-            scorebug.unlink(missing_ok=True)
+            overlay_png.unlink(missing_ok=True)
 
         caption = build_caption(fixture, event, home_score, away_score)
         hashtags = build_hashtags(fixture, event)
-        log.info("Rendered clip → %s (%.1fs)", out_mp4, duration)
-        return RenderedClip(
-            path=str(out_mp4),
-            fixture=fixture,
-            event=event,
-            duration_seconds=duration,
-            caption=caption,
-            hashtags=hashtags,
+        clip = RenderedClip(
+            path=str(out_mp4), fixture=fixture, event=event,
+            duration_seconds=duration, caption=caption, hashtags=hashtags,
         )
+        # Sidecar text file with the suggested title/description for manual use.
+        out_mp4.with_suffix(".txt").write_text(clip.full_description,
+                                               encoding="utf-8")
+        log.info("Saved clip → %s (%.1fs)", out_mp4, duration)
+        return clip
+
+    @staticmethod
+    def _slug(text: str) -> str:
+        return "".join(c if c.isalnum() or c == "_" else "_" for c in text)
 
     def _wait_for(self, until_ts: float) -> None:
         remaining = until_ts - time.time()
@@ -276,7 +284,8 @@ class ClipFactory:
         ]
         if scorebug_png is not None:
             cmd += ["-i", str(scorebug_png)]
-            graph += f";[{last}][1:v]overlay=(W-w)/2:70[outv]"
+            # Full-frame transparent overlay (text already positioned at top).
+            graph += f";[{last}][1:v]overlay=0:0[outv]"
         else:
             graph += f";[{last}]copy[outv]"
 
