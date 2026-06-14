@@ -67,6 +67,9 @@ def main() -> int:
     parser.add_argument("--wc26", nargs="?", type=int, const=-1, default=None,
                         help="free worldcup26 live runner; optional match id "
                              "(omit to auto-pick a live match)")
+    parser.add_argument("--stream-url", default=None,
+                        help="record this exact stream URL (bypass auto-search); "
+                             "use the FIFA-approved feed you've verified")
     args = parser.parse_args()
 
     if args.mode == "doctor":
@@ -74,7 +77,7 @@ def main() -> int:
 
     if args.wc26 is not None:
         match_id = None if args.wc26 == -1 else args.wc26
-        return run_wc26_live(match_id)
+        return run_wc26_live(match_id, stream_url=args.stream_url)
 
     Orchestrator().run_forever(forced_fixture=args.fixture)
     return 0

@@ -33,12 +33,13 @@ _OFFICIAL_SIGNALS = (
 # reactions, previews, score tickers, games, etc. Any hit hard-excludes the
 # candidate (better to find nothing than record the wrong video).
 _NEGATIVE_SIGNALS = (
-    "free", "watch now", "click", "link in", "pes", "fifa 2", "efootball",
+    "free", "watch now", "click here", "link in", "efootball",
+    "fifa 23", "fifa 24", "fc 24", "fc 25",  # video games, not the match
     "watchalong", "watch along", "watch-along", "watch party", "watchparty",
-    "reaction", "react", "preview", "build-up", "buildup", "press conference",
+    "reaction", "preview", "build-up", "buildup", "press conference",
     "presser", "analysis", "studio", "discussion", "debate", "podcast",
     "co-stream", "costream", "live scores", "live score", "score update",
-    "scoreboard", "radio", "news", "news18", "talk show", "talkshow",
+    "scoreboard", "radio", "news", "talk show", "talkshow",
     "predicted", "prediction", "fan tv", "fantv", "highlights", "recap",
 )
 
@@ -136,10 +137,10 @@ class YouTubeHunter:
         candidates: dict[str, dict[str, Any]] = {}
         for query in fixture.search_queries():
             log.debug("YouTube live search: %r", query)
-            for item in self._search(query):
+            for item in self._search(query, max_results=15):
                 vid = item["id"]["videoId"]
                 candidates.setdefault(vid, item)
-            if len(candidates) >= 15:
+            if len(candidates) >= 25:
                 break
 
         if not candidates:

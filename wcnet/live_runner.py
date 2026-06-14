@@ -59,7 +59,8 @@ def _start_recording(hunter: YouTubeHunter, fixture, settings: Settings,
     return recorder, str(stream.video_id)
 
 
-def run_wc26_live(match_id: int | None = None) -> int:
+def run_wc26_live(match_id: int | None = None,
+                  stream_url: str | None = None) -> int:
     settings = get_settings()
     configure_logging(settings.log_level, settings.data_dir / "wcnet.log")
     # Goals are detected on a poll, so allow generous buildup before the trigger.
@@ -90,14 +91,23 @@ def run_wc26_live(match_id: int | None = None) -> int:
     log.info("🎯 %s [%s]  score %s-%s", fixture.title, api.status_short(match),
              *api.scores(match))
 
-    hunter = YouTubeHunter(settings, auth=YouTubeAuth(settings))
     factory = ClipFactory(settings)
     failed: set[str] = set()
+    hunter = YouTubeHunter(settings, auth=YouTubeAuth(settings))
 
-    recorder, current_vid = _start_recording(hunter, fixture, settings, failed)
-    if recorder is None:
-        log.error("No live stream found for %s — cannot record.", fixture.title)
-        return 1
+    if stream_url:
+        # User-supplied feed (e.g. the FIFA-approved stream you verified).
+        log.info("Using provided stream URL (auto-search bypassed): %s", stream_url)
+        recorder = StreamRecorder(fixture, stream_url, settings)
+        recorder.start()
+        current_vid = None
+    else:
+        recorder, current_vid = _start_recording(hunter, fixture, settings, failed)
+        if recorder is None:
+            log.error("No verified match stream for %s — cannot record. "
+                      "Pass --stream-url <youtube url> to record a specific feed.",
+                      fixture.title)
+            return 1
     started_at = time.time()
     watcher.prime(match)  # only goals from now on
 
@@ -125,8 +135,10 @@ def run_wc26_live(match_id: int | None = None) -> int:
                     else:
                         log.info("   📁 saved %s", clip.path)
 
-            # 2. Stream watchdog → fail over to a different feed if dead.
-            if recorder is not None and time.time() - started_at > RESTART_GRACE:
+            # 2. Stream watchdog. With a user-supplied URL we just let the
+            #    recorder auto-reconnect; in auto mode we fail over to another feed.
+            if (stream_url is None and recorder is not None
+                    and time.time() - started_at > RESTART_GRACE):
                 age = recorder.seconds_since_last_segment()
                 if age is None or age > STALE_SECONDS:
                     log.warning("Stream stale (%s) — switching feed.",
