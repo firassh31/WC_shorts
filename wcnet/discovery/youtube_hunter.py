@@ -29,8 +29,18 @@ _OFFICIAL_SIGNALS = (
     "fifa", "official", "espn", "fox sports", "bein", "sky sports",
     "bbc", "itv", "telemundo", "tnt sports", "dazn", "optus",
 )
-# Signals that strongly suggest a junk / scam re-stream we should down-rank.
-_NEGATIVE_SIGNALS = ("free", "watch now", "click", "link in", "pes", "fifa 2", "efootball")
+# Titles/channels that are NOT the live match feed — talk shows, watchalongs,
+# reactions, previews, score tickers, games, etc. Any hit hard-excludes the
+# candidate (better to find nothing than record the wrong video).
+_NEGATIVE_SIGNALS = (
+    "free", "watch now", "click", "link in", "pes", "fifa 2", "efootball",
+    "watchalong", "watch along", "watch-along", "watch party", "watchparty",
+    "reaction", "react", "preview", "build-up", "buildup", "press conference",
+    "presser", "analysis", "studio", "discussion", "debate", "podcast",
+    "co-stream", "costream", "live scores", "live score", "score update",
+    "scoreboard", "radio", "news", "news18", "talk show", "talkshow",
+    "predicted", "prediction", "fan tv", "fantv", "highlights", "recap",
+)
 
 
 class YouTubeHunter:
@@ -91,6 +101,20 @@ class YouTubeHunter:
         return {item["id"]: item for item in resp.get("items", [])}
 
     @staticmethod
+    def _is_match_feed(title: str, channel: str, team_tokens: set[str]) -> bool:
+        """True only if this looks like the actual match feed (not a talk show).
+
+        Rejects any candidate carrying a non-match signal, and requires the
+        title/channel to actually mention one of the playing teams.
+        """
+        text = f"{title} {channel}".lower()
+        if any(neg in text for neg in _NEGATIVE_SIGNALS):
+            return False
+        if team_tokens and not any(tok in text for tok in team_tokens):
+            return False
+        return True
+
+    @staticmethod
     def _score(title: str, channel: str, view_count: int, concurrent: int) -> float:
         text = f"{title} {channel}".lower()
         score = float(max(view_count, concurrent))
@@ -124,8 +148,15 @@ class YouTubeHunter:
 
         stats = self._statistics(list(candidates.keys()))
 
+        # Tokens of the playing teams (skip short words) for relevance checking.
+        team_tokens = {
+            w for t in (fixture.home_team, fixture.away_team)
+            for w in t.lower().replace("-", " ").split() if len(w) > 3
+        }
+
         best: LiveStream | None = None
         best_score = -1.0
+        rejected = 0
         for vid, item in candidates.items():
             if vid in exclude:
                 continue
@@ -135,11 +166,15 @@ class YouTubeHunter:
             # Skip anything that isn't *actually* still live.
             if "actualEndTime" in live_details:
                 continue
+            channel = snippet.get("channelTitle", "")
+            title = snippet.get("title", "")
+            # HARD filter: reject talk-shows / watchalongs / off-topic streams.
+            if not self._is_match_feed(title, channel, team_tokens):
+                rejected += 1
+                continue
             statistics = detail.get("statistics", {})
             view_count = int(statistics.get("viewCount", 0))
             concurrent = int(live_details.get("concurrentViewers", 0))
-            channel = snippet.get("channelTitle", "")
-            title = snippet.get("title", "")
             score = self._score(title, channel, view_count, concurrent)
             if score > best_score:
                 best_score = score
@@ -157,6 +192,12 @@ class YouTubeHunter:
             log.info(
                 "Selected live stream for %s: %r (%s) score=%.0f",
                 fixture.title, best.title, best.channel_title, best_score,
+            )
+        else:
+            log.info(
+                "No verified match feed for %s (%d candidate(s) rejected as "
+                "non-match: talk-shows / watchalongs / off-topic).",
+                fixture.title, rejected,
             )
         return best
 
