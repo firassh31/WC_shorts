@@ -101,8 +101,14 @@ class YouTubeHunter:
             score *= 0.05
         return score
 
-    def find_live_stream(self, fixture: Fixture) -> LiveStream | None:
-        """Run the full hunt + validation heuristic for one fixture."""
+    def find_live_stream(self, fixture: Fixture,
+                         exclude: set[str] | None = None) -> LiveStream | None:
+        """Run the full hunt + validation heuristic for one fixture.
+
+        ``exclude`` is a set of video ids to skip (streams already tried and
+        found dead), so failover picks a different feed.
+        """
+        exclude = exclude or set()
         candidates: dict[str, dict[str, Any]] = {}
         for query in fixture.search_queries():
             log.debug("YouTube live search: %r", query)
@@ -121,6 +127,8 @@ class YouTubeHunter:
         best: LiveStream | None = None
         best_score = -1.0
         for vid, item in candidates.items():
+            if vid in exclude:
+                continue
             snippet = item["snippet"]
             detail = stats.get(vid, {})
             live_details = detail.get("liveStreamingDetails", {})

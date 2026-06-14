@@ -61,6 +61,20 @@ class StreamRecorder:
     def buffer_dir(self) -> Path:
         return self._dir
 
+    def seconds_since_last_segment(self) -> float | None:
+        """Age (s) of the newest buffered segment, or None if none yet.
+
+        Lets a supervisor detect a dead stream (no fresh segments) and fail over.
+        """
+        segs = list(self._dir.glob("seg_*.ts"))
+        if not segs:
+            return None
+        try:
+            newest = max(s.stat().st_mtime for s in segs)
+        except OSError:
+            return None
+        return max(0.0, time.time() - newest)
+
     # ── lifecycle ───────────────────────────────────────────────────────--
     def start(self) -> None:
         self._recorder = threading.Thread(
