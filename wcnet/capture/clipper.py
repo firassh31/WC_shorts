@@ -36,7 +36,7 @@ from .overlay import scorebug_for_event
 
 log = logging.getLogger("wcnet.capture")
 
-_SEG_RE = re.compile(r"seg_(\d{8}_\d{6})_(\d+)\.ts$")
+_SEG_RE = re.compile(r"seg_(\d{8}_\d{6})\.ts$")
 
 
 class StreamRecorder:
@@ -85,7 +85,10 @@ class StreamRecorder:
 
     # ── recorder loop (auto-reconnect on stream drop) ──────────────────────
     def _record_loop(self) -> None:
-        pattern = str(self._dir / "seg_%Y%m%d_%H%M%S_%03d.ts")
+        # strftime second-resolution naming (segment_time >= 1s keeps these
+        # unique). NOTE: a numeric %03d sequence is NOT a valid strftime token
+        # and yields empty filenames on Windows ffmpeg — keep this strftime-only.
+        pattern = str(self._dir / "seg_%Y%m%d_%H%M%S.ts")
         while not self._stop.is_set():
             cmd = [
                 self._s.ffmpeg_binary,
@@ -126,15 +129,15 @@ class StreamRecorder:
                     pass
 
     # ── segment selection helpers ─────────────────────────────────────────-
-    @staticmethod
-    def _seg_start(path: Path) -> float | None:
-        m = _SEG_RE.search(path.name)
-        if not m:
+    def _seg_start(self, path: Path) -> float | None:
+        # Use the file's mtime (epoch, timezone-agnostic) as the segment's
+        # approximate START time. mtime marks when the segment finished being
+        # written, so subtract one segment length. This avoids ffmpeg's
+        # -strftime naming (LOCAL time) clashing with UTC event timestamps.
+        try:
+            return path.stat().st_mtime - self._s.segment_seconds
+        except OSError:
             return None
-        dt = datetime.strptime(m.group(1), "%Y%m%d_%H%M%S").replace(
-            tzinfo=timezone.utc
-        )
-        return dt.timestamp()
 
     def select_segments(self, window_start: float, window_end: float) -> list[Path]:
         """All buffered segments overlapping the requested wall-clock window."""
@@ -219,8 +222,10 @@ class ClipFactory:
     @resilient(attempts=3, exceptions=(subprocess.SubprocessError, OSError))
     def _concat_copy(self, segments: list[Path], out_path: Path) -> None:
         list_file = out_path.with_suffix(".txt")
+        # Absolute paths: the concat demuxer resolves relative entries against
+        # the LIST file's directory, not the CWD, which would mis-locate them.
         list_file.write_text(
-            "".join(f"file '{seg.as_posix()}'\n" for seg in segments),
+            "".join(f"file '{seg.resolve().as_posix()}'\n" for seg in segments),
             encoding="utf-8",
         )
         cmd = [
