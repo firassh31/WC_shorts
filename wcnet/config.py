@@ -46,8 +46,7 @@ class Settings(BaseSettings):
     football_season: int = Field(default=2026, alias="FOOTBALL_SEASON")
     football_poll_seconds: int = Field(default=60, alias="FOOTBALL_POLL_SECONDS")
 
-    # ── YouTube ──────────────────────────────────────────────────────────
-    youtube_api_key: str = Field(default="", alias="YOUTUBE_API_KEY")
+    # ── YouTube (OAuth used ONLY to search for the live stream) ───────────
     youtube_client_secrets: Path = Field(
         default=Path("./secrets/client_secrets.json"),
         alias="YOUTUBE_CLIENT_SECRETS",
@@ -55,23 +54,6 @@ class Settings(BaseSettings):
     youtube_token_cache: Path = Field(
         default=Path("./data/youtube_token.json"), alias="YOUTUBE_TOKEN_CACHE"
     )
-    youtube_category_id: str = Field(default="17", alias="YOUTUBE_CATEGORY_ID")
-    youtube_privacy: Literal["public", "unlisted", "private"] = Field(
-        default="public", alias="YOUTUBE_PRIVACY"
-    )
-
-    # ── Instagram / Meta Graph ───────────────────────────────────────────
-    ig_user_id: str = Field(default="", alias="IG_USER_ID")
-    ig_access_token: str = Field(default="", alias="IG_ACCESS_TOKEN")
-    ig_graph_version: str = Field(default="v19.0", alias="IG_GRAPH_VERSION")
-
-    # ── Cloudflare R2 ────────────────────────────────────────────────────
-    r2_account_id: str = Field(default="", alias="R2_ACCOUNT_ID")
-    r2_access_key_id: str = Field(default="", alias="R2_ACCESS_KEY_ID")
-    r2_secret_access_key: str = Field(default="", alias="R2_SECRET_ACCESS_KEY")
-    r2_bucket: str = Field(default="wcnet-clips", alias="R2_BUCKET")
-    r2_endpoint: str = Field(default="", alias="R2_ENDPOINT")
-    r2_public_base_url: str = Field(default="", alias="R2_PUBLIC_BASE_URL")
 
     # ── Capture / render ─────────────────────────────────────────────────
     capture_pre_seconds: int = Field(default=18, alias="CAPTURE_PRE_SECONDS")
@@ -121,11 +103,6 @@ class Settings(BaseSettings):
     @property
     def clip_total_seconds(self) -> int:
         return self.capture_pre_seconds + self.capture_post_seconds
-
-    @property
-    def youtube_privacy_status(self) -> str:
-        """Alias of ``youtube_privacy`` used by the YouTube publisher."""
-        return self.youtube_privacy
 
     def ensure_dirs(self) -> None:
         """Create every runtime directory the ecosystem expects."""

@@ -30,8 +30,23 @@ class _OSTrustAdapter(HTTPAdapter):
         super().init_poolmanager(*args, **kwargs)
 
 
+# Signatures of a certificate *trust* failure (vs. a transient connection drop).
+# Only these warrant the OS-trust-store fallback; a connection EOF/reset must be
+# retried on the SAME (certifi) path, not detoured to the OS store.
+_VERIFY_FAILURE_MARKERS = (
+    "certificate_verify_failed",
+    "unable to get local issuer",
+    "self signed certificate",
+    "self-signed certificate",
+    "certificate has expired",
+)
+
+
 class FallbackSession(requests.Session):
-    """certifi-by-default session that retries via the OS trust store on TLS error."""
+    """certifi-by-default session that retries via the OS trust store ONLY on a
+    certificate-verification failure (e.g. a VPN/proxy MITM root). Transient
+    connection errors (SSL EOF / reset) are re-raised so the caller's normal
+    retry runs on the working certifi path."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -40,7 +55,9 @@ class FallbackSession(requests.Session):
     def request(self, method, url, **kwargs):  # type: ignore[override]
         try:
             return super().request(method, url, **kwargs)
-        except requests.exceptions.SSLError:
+        except requests.exceptions.SSLError as exc:
+            if not any(m in str(exc).lower() for m in _VERIFY_FAILURE_MARKERS):
+                raise  # connection-level blip — let the normal retry handle it
             if self._os_session is None:
                 s = requests.Session()
                 s.headers = self.headers

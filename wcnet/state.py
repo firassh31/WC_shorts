@@ -40,15 +40,6 @@ class StateStore:
         fixture_id   INTEGER NOT NULL,
         created_at   TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS publications (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        event_hash   TEXT NOT NULL,
-        platform     TEXT NOT NULL,
-        remote_id    TEXT,
-        status       TEXT NOT NULL,
-        created_at   TEXT NOT NULL,
-        UNIQUE(event_hash, platform)
-    );
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -149,32 +140,6 @@ class StateStore:
                 (event_hash, fixture_id, now),
             )
         return True
-
-    # ── publications ──────────────────────────────────────────────────────
-    def already_published(self, event_hash: str, platform: str) -> bool:
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT 1 FROM publications "
-                "WHERE event_hash = ? AND platform = ? AND status = 'ok'",
-                (event_hash, platform),
-            ).fetchone()
-        return row is not None
-
-    def record_publication(
-        self, event_hash: str, platform: str, remote_id: str | None, status: str
-    ) -> None:
-        with self._tx() as conn:
-            conn.execute(
-                """INSERT INTO publications
-                       (event_hash, platform, remote_id, status, created_at)
-                   VALUES (?,?,?,?,?)
-                   ON CONFLICT(event_hash, platform) DO UPDATE SET
-                       remote_id = excluded.remote_id,
-                       status    = excluded.status,
-                       created_at= excluded.created_at
-                """,
-                (event_hash, platform, remote_id, status, self._now()),
-            )
 
     def close(self) -> None:
         with self._lock:

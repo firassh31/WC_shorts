@@ -3,7 +3,7 @@
 For a given match it pulls the real event timeline (API-Football), keeps only
 the big moments (goals, penalties, red cards, VAR, contextual highlights),
 tracks the running score, and renders a separate clip per event — each with its
-own event-styled scorebug (GOAL/PENALTY/RED CARD ... + score + minute).
+own event-text overlay — plus a sidecar .txt with the suggested description.
 
 Footage source: a local video you supply (e.g. a clip you have the rights to,
 or the live buffer in production). Timestamp→event alignment is exact in the
@@ -11,7 +11,7 @@ LIVE pipeline (each event clips from the rolling buffer); for a static VOD reel
 the offsets are spread across the file, so labels are illustrative.
 
 Usage:
-    python scripts/match_to_clips.py <source_video> [fixture_id] [--max N] [--upload]
+    python scripts/match_to_clips.py <source_video> [fixture_id] [--max N] [--offsets s,s,...]
 """
 
 from __future__ import annotations
@@ -79,7 +79,6 @@ def main() -> int:
     if not source.exists():
         print(f"Source video not found: {source}")
         return 1
-    do_upload = "--upload" in sys.argv
     max_clips = 6
     skip_idx: set[int] = set()
     if "--max" in sys.argv:
