@@ -15,10 +15,16 @@ Limitations (free data): GOALS ONLY — no cards, subs, VAR, or contextual event
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
+
+import requests
 
 from ..models import EventType, Fixture, MatchEvent
 from ..utils.http import make_session
@@ -27,6 +33,9 @@ from ..utils.retry import resilient
 log = logging.getLogger("wcnet.discovery.worldcup26")
 
 BASE_URL = "https://worldcup26.ir"
+# Windows' bundled curl uses SChannel (the OS TLS stack), which negotiates with
+# this host even when Python's OpenSSL handshake is dropped by the network.
+_SYS_CURL = r"C:\Windows\System32\curl.exe"
 _NULLISH = {"", "null", "none", "notstarted"}
 # Matches "Name 23'" or "Name 90+2'" inside the scorers blob.
 _SCORER_RE = re.compile(r"([^\",{}]+?)\s+(\d{1,3})(?:\+\d+)?'")
@@ -48,9 +57,28 @@ class WorldCup26API:
 
     @resilient(attempts=4)
     def fetch_games(self) -> list[dict]:
-        resp = self._session.get(f"{BASE_URL}/get/games", timeout=20)
-        resp.raise_for_status()
-        return resp.json().get("games", [])
+        try:
+            resp = self._session.get(f"{BASE_URL}/get/games", timeout=20)
+            resp.raise_for_status()
+            return resp.json().get("games", [])
+        except requests.exceptions.SSLError:
+            # Python's OpenSSL handshake to this host is dropped on some
+            # networks; the OS-native TLS stack (Windows SChannel via curl)
+            # negotiates fine. Fall back to it.
+            return self._curl_get_games()
+
+    def _curl_get_games(self) -> list[dict]:
+        curl = _SYS_CURL if os.path.exists(_SYS_CURL) else shutil.which("curl")
+        if not curl:
+            raise RuntimeError("TLS fallback unavailable: system curl not found")
+        out = subprocess.run(
+            [curl, "-s", "--max-time", "20", "-H", "Accept: application/json",
+             f"{BASE_URL}/get/games"],
+            capture_output=True, text=True,
+        )
+        if out.returncode != 0 or not out.stdout.strip():
+            raise RuntimeError(f"curl TLS fallback failed (rc={out.returncode})")
+        return json.loads(out.stdout).get("games", [])
 
     # ── helpers ──────────────────────────────────────────────────────────--
     @staticmethod

@@ -88,10 +88,21 @@ def run_wc26_live(match_id: int | None = None,
     api = WorldCup26API()
     watcher = GoalWatcher(api)
 
-    try:
-        games = api.fetch_games()
-    except Exception as exc:  # noqa: BLE001
-        log.error("Could not reach worldcup26.ir: %s — try again shortly.", exc)
+    # Be patient on startup: the host (and/or a local VPN/proxy) can drop TLS
+    # intermittently, so retry for a few minutes before giving up.
+    games = None
+    for attempt in range(1, 7):
+        try:
+            games = api.fetch_games()
+            break
+        except Exception as exc:  # noqa: BLE001
+            log.warning("worldcup26.ir unreachable (try %d/6): %s", attempt, exc)
+            time.sleep(25)
+    if games is None:
+        log.error(
+            "worldcup26.ir still unreachable. This is a network/TLS problem on "
+            "this machine — TLS handshakes are being reset (often an unstable "
+            "VPN/proxy). Check your connection/VPN and try again.")
         return 1
 
     if match_id is not None:
