@@ -79,6 +79,9 @@ def main() -> int:
         match_id = None if args.wc26 == -1 else args.wc26
         return run_wc26_live(match_id, stream_url=args.stream_url)
 
+    log.info("Discovery via API-Football (needs a paid plan for the 2026 season).")
+    log.info("For the FREE WorldCup-2026 feed, use:  python main.py --wc26  "
+             "(auto-picks the live/upcoming match)")
     Orchestrator().run_forever(forced_fixture=args.fixture)
     return 0
 
