@@ -115,7 +115,9 @@ class StreamRecorder:
         # yt-dlp pulls the live stream from the live edge and muxes a single
         # combined stream to stdout; ffmpeg just segments the pipe (-c copy).
         ydl_cmd = [
-            sys.executable, "-m", "yt_dlp",
+            # Bootstrap that injects the OS trust store so yt-dlp verifies TLS
+            # even on networks with VPN/AV/proxy interception.
+            sys.executable, "-m", "wcnet._ytdlp_run",
             "--quiet", "--no-warnings", "--no-part", "--no-playlist",
             "--retries", "infinite", "--fragment-retries", "infinite",
             "-f", "b[height<=720]/b/best",
