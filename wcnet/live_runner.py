@@ -43,6 +43,24 @@ def _safe_fetch_match(api: WorldCup26API, fixture_id: int) -> dict | None:
     return next((g for g in games if api._to_int(g.get("id")) == fixture_id), None)
 
 
+def _kickoff_dt(api: WorldCup26API, match: dict):
+    from datetime import datetime
+    try:
+        return datetime.strptime(match.get("local_date", ""), "%m/%d/%Y %H:%M")
+    except ValueError:
+        return datetime.max
+
+
+def _select_match(api: WorldCup26API, games: list[dict]):
+    """Auto-pick a match: any LIVE one, else the soonest UPCOMING one."""
+    live = [m for m in games if api.is_live(m)]
+    if live:
+        return live[0], "live"
+    upcoming = [m for m in games if api.status_short(m) == "NS"]
+    upcoming.sort(key=lambda m: _kickoff_dt(api, m))
+    return (upcoming[0], "upcoming") if upcoming else (None, None)
+
+
 def _start_recording(hunter: YouTubeHunter, fixture, settings: Settings,
                      failed: set[str]) -> tuple[StreamRecorder | None, str | None]:
     """Find a live stream (excluding failed ones) and start recording it."""
@@ -78,18 +96,33 @@ def run_wc26_live(match_id: int | None = None,
 
     if match_id is not None:
         match = next((m for m in games if api._to_int(m.get("id")) == match_id), None)
+        kind = "live" if match and api.is_live(match) else "selected"
     else:
-        live = [m for m in games if api.is_live(m)]
-        match = live[0] if live else None
+        match, kind = _select_match(api, games)
 
     if match is None:
-        log.error("No target match. Pass a live match id, or run during a game. "
-                  "List today's ids:  python scripts/wc26_goal_test.py")
+        log.error("No live or upcoming World Cup match found right now.")
         return 1
 
     fixture = api.to_fixture(match)
-    log.info("🎯 %s [%s]  score %s-%s", fixture.title, api.status_short(match),
-             *api.scores(match))
+    target_id = fixture.fixture_id
+    log.info("🎯 Auto-selected (%s): %s  [%s]  %s",
+             kind, fixture.title, match.get("local_date", ""),
+             "score %s-%s" % api.scores(match))
+
+    # If it hasn't kicked off yet, wait for it to go live before recording.
+    while not api.is_live(match) and api.status_short(match) != "FT":
+        log.info("⏳ Waiting for kickoff (%s)... checking again in 60s.",
+                 match.get("local_date", ""))
+        time.sleep(60)
+        m = _safe_fetch_match(api, target_id)
+        if m is not None:
+            match = m
+    if api.status_short(match) == "FT":
+        log.info("Match already finished — nothing to record.")
+        return 0
+    fixture = api.to_fixture(match)
+    log.info("🟢 Kickoff — %s is LIVE. Starting capture.", fixture.title)
 
     factory = ClipFactory(settings)
     failed: set[str] = set()
